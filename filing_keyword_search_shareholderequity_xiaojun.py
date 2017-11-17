@@ -5,7 +5,7 @@ menu_key1 = 'financial statements'
 menu_key2 = 'equit'
 
 
-dst_dir = '/home/haoyang/Dropbox/JeanHao/Edgar/ForXiaojun/'
+dst_dir = '../ForXiaojun/'
 
 
 ''' load company_filing DataBase '''
