@@ -1,7 +1,9 @@
 from Edgar import *
 
 
-for year in np.arange(2014,2018):
+report_year_list = [2015,]
+
+for year in report_year_list:
 	
 	with open("../results/filings13F_"+str(year)+".pkl",'rb') as f:
 		ci13F = pickle.load(f)
@@ -16,4 +18,4 @@ for year in np.arange(2014,2018):
 	print(year, len(cf.tables_13F))
 	with open("../results/table-13F-"+str(year)+".pkl",'wb') as f:
 		pickle.dump( cf.tables_13F, f)
-		cf.tables_13F.to_csv("../results/tables-13F-"+str(year)+".csv", sep='\t')
+		cf.tables_13F.to_csv("../results/table-13F-"+str(year)+".csv", sep='\t')

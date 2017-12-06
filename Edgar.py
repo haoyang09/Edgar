@@ -138,30 +138,20 @@ class CorpFiling():
 
 			if ci['url_txt'] == '':
 				ci['url_txt'] = SEC_homepage+'/Archives/' + ci['file_name']
-			
-			if ci['period_of_report'] == '':
-				ci['period_of_report'] = period_of_report_parser(ci['url_index'])
 
 			if '10-K' in ci['form_type']:
 				if ci['url_html'] == '':
-					ci['url_html'], ci['interactiveDataBtn'] =  index_page_parser(ci['url_index'])
+					ci['url_html'], ci['interactiveDataBtn'], ci['period_of_report'] =  \
+					index_page_parser(ci['url_index'])
 			
 				if ci['interactiveDataDict'] == '':
 					ci['interactiveDataDict'] = interactiveDataBtn_page_parser(ci['interactiveDataBtn'])
 
 			elif ( "13F" in ci['form_type'] ) and ci['url_13Ftable_html'] == '':
-				ci['url_html'], ci['url_13Ftable_html'] = index_page_parser_13F(ci['url_index'])
+				ci['url_html'], ci['url_13Ftable_html'], ci['period_of_report'] = \
+					index_page_parser_13F(ci['url_index'])
 
 			self.corpidx.loc[idx,:] = ci
-
-	def period_of_report_parser(self):
-		print("parse period of report")
-		for idx in tqdm(self.corpidx.index.tolist()):
-			ci = self.corpidx.loc[idx]
-			if ci['period_of_report'] == '':
-				ci['period_of_report'] = period_of_report_parser(ci['url_index'])
-				
-			
 
 	def filing_download(self, verbose=False):
 		###create a connection pool to SEC
@@ -194,31 +184,21 @@ class CorpFiling():
 						pass
 
 			elif "13F" in company.form_type:
-				'''
-				### download primary html, infotable html or txt file
-				try: 
-					web = webDownloader(company.url_html)
-					web.download(pool, verbose = verbose)
-				except: 
-					print("failed to download url_html: " + company.url_html)
-				'''
-
-				try:
-					if len(company.url_13Ftable_html) > 0:
-						web = webDownloader(company.url_13Ftable_html)
-					else:
-						web = webDownloader(company.url_txt)
-					web.download(pool, verbose = verbose)
-				except: 
-					print("failed to download url_13Ftable_html: " + company.url_13Ftable_html)
+				if company.year in ["2014", "2015", "2016", "2017"] \
+					and (len(company.url_13Ftable_html) > 0):
+					web = webDownloader(company.url_13Ftable_html)
+				else:
+					web = webDownloader(company.url_txt)
+				try: web.download(pool, verbose = verbose)
+				except Exception as e: print(e)
 
 	def table_13F_parser(self, verbose=False):
 		self.tables_13F = pd.DataFrame([])
 		for idx in tqdm(self.corpidx.index.tolist()):
 			company = self.corpidx.loc[idx]
-			try:
-				if ("13F" in company.form_type) and ("13F-NT" not in company.form_type):
-					#print(company.cik + '\t' + company.company_name + '\t' + company.date_filed)
+			if "13F-HR" in company.form_type:
+				if verbose:  print(company.cik + '\t' + company.company_name + '\t' + company.date_filed)
+				try:
 					web = webDownloader(company.url_13Ftable_html)
 					table = web.read_table_13F()
 					table["cik"] 			= company.cik
@@ -226,14 +206,13 @@ class CorpFiling():
 					table["form_type"] 		= company.form_type
 					table["date_filed"] 	= company.date_filed
 					table["url_index"] 		= company.url_index
-												
+					table["period_of_report"] 	= company.period_of_report							
 					if len(table)>0:
 						if len(self.tables_13F) == 0:
 							self.tables_13F = table
 						else:
-							self.tables_13F = pd.concat([self.tables_13F, table], ignore_index = True)
-			except Exception as e:
-				print(e, company.cik + '\t' + company.company_name + '\t' + company.date_filed)
+							self.tables_13F = self.tables_13F.append(table, ignore_index = True)
+				except Exception as e: print(e)
 
 
 
@@ -280,8 +259,8 @@ class webDownloader():
 				else:
 					if verbose: print('[Failed] Download file from'+self.input_url + '--Status Code:'+ r.status)
 				r.close()
-			except:
-				pass
+			except Exception as e:
+				print(e)
 			#except urllib3.exceptions.SSLError as e:
 			#	print('Error download file', e)
 
@@ -296,6 +275,7 @@ def index_page_parser_13F(url_index):
 	page, status_code = urllib3_request(url_index)
 	url_html = ''
 	url_13Ftable_html = ''
+	period_of_report = ''
 	if status_code == 200:
 		tree = html.fromstring(page)
 		href_list = tree.xpath('//td/a/@href')
@@ -313,22 +293,24 @@ def index_page_parser_13F(url_index):
 				elif "table" in text and "html" in text:
 					url_13Ftable_html =  'https://www.sec.gov' + href
 		except: pass
+
+		### parse the period of report
+		try:
+			period = tree.xpath('//div[text() = "Period of Report"]/following-sibling::div/text()')
+			period_of_report = period[0]
+		except Exception as e:
+			print(e) 
+
 	else:
 		print('Failed to open url ' + url_index + status_code)
-	return 	url_html, url_13Ftable_html
-
-def table_13F_parser(url_infotable):
-	try:
-		table = pd.read_html(url_infotable, header = 2)
-		return pd.DataFrame(table[3])
-	except:
-		return  []
+	return 	url_html, url_13Ftable_html, period_of_report
 
 
 def index_page_parser(url_index):
 	page, status_code = urllib3_request(url_index)
 	url_html = ''
 	interactiveDataBtn = ''
+	period_of_report = ''
 	if status_code == 200:
 		### get the url of the html
 		tree = html.fromstring(page)
@@ -349,17 +331,8 @@ def index_page_parser(url_index):
 				self.interactiveDataBtn = 'https://www.sec.gov' + '/cgi-bin/viewer?action=view&amp;cik=' \
 					+ self.cik + '&amp;accession_number=' + self.accession + '&amp;xbrl_type=v'
 		'''
-	else:
-		print('Failed to get .HTML CorpFiling URL', status_code)
-	return 	url_html, interactiveDataBtn
 
-
-
-def period_of_report_parser(url_index):
-	page, status_code = urllib3_request(url_index)
-	period_of_report = ''
-	if status_code == 200:
-		tree = html.fromstring(page)
+		### parse the period of report
 		try:
 			period = tree.xpath('//div[text() = "Period of Report"]/following-sibling::div/text()')
 			period_of_report = period[0]
@@ -367,8 +340,7 @@ def period_of_report_parser(url_index):
 			print(e) 
 	else:
 		print('Failed to get .HTML CorpFiling URL', status_code)
-	return period_of_report
-
+	return 	url_html, interactiveDataBtn, period_of_report
 
 
 
@@ -389,6 +361,15 @@ def interactiveDataBtn_page_parser(url_interactiveDataBtn):
 		except:
 			pass
 	return interactiveDataDict
+
+
+def table_13F_parser(url_infotable):
+	try:
+		table = pd.read_html(url_infotable, header = 2)
+		return pd.DataFrame(table[3])
+	except:
+		return  []
+
 
 def urllib3_request(input_url, verbose=False):
 	page = []
